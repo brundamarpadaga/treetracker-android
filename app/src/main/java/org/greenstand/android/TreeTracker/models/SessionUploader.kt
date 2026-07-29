@@ -67,14 +67,14 @@ class SessionUploader(
         } catch (e: SerializationException) {
             exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_PARSING, e, "Serialization failure during session upload")
             throw e
-        } catch (e: IOException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_NETWORK, e, "Network failure during session upload")
-            throw e
-        } catch (e: AmazonClientException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_SERVER, e, "Storage server failure during session upload")
-            throw e
         } catch (e: Exception) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_UNKNOWN, e, "Unexpected failure during session upload")
+            val (failureType, message) =
+                when (e) {
+                    is IOException -> ExceptionDataCollector.TYPE_NETWORK to "Network failure during session upload"
+                    is AmazonClientException -> ExceptionDataCollector.TYPE_SERVER to "Storage server failure during session upload"
+                    else -> ExceptionDataCollector.TYPE_UNKNOWN to "Unexpected failure during session upload"
+                }
+            exceptionDataCollector.recordFailure(failureType, e, message)
             throw e
         }
     }

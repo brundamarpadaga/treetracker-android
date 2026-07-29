@@ -66,29 +66,14 @@ class PlanterUploader(
                     TAG,
                 )
                 throw e
-            } catch (e: IOException) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_NETWORK,
-                    e,
-                    "Network failure during planter upload",
-                    TAG,
-                )
-                throw e
-            } catch (e: AmazonClientException) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_SERVER,
-                    e,
-                    "Storage server failure during planter upload",
-                    TAG,
-                )
-                throw e
             } catch (e: Exception) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_UNKNOWN,
-                    e,
-                    "Unexpected failure during planter upload",
-                    TAG,
-                )
+                val (failureType, message) =
+                    when (e) {
+                        is IOException -> ExceptionDataCollector.TYPE_NETWORK to "Network failure during planter upload"
+                        is AmazonClientException -> ExceptionDataCollector.TYPE_SERVER to "Storage server failure during planter upload"
+                        else -> ExceptionDataCollector.TYPE_UNKNOWN to "Unexpected failure during planter upload"
+                    }
+                exceptionDataCollector.recordFailure(failureType, e, message, TAG)
                 throw e
             }
         }
