@@ -15,30 +15,52 @@
  */
 package org.greenstand.android.TreeTracker.models.messages
 
+import com.amazonaws.AmazonClientException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.greenstand.android.TreeTracker.analytics.ExceptionDataCollector
 import org.greenstand.android.TreeTracker.api.ObjectStorageClient
 import org.greenstand.android.TreeTracker.api.models.requests.UploadBundle
 import org.greenstand.android.TreeTracker.models.messages.database.DatabaseConverters
 import org.greenstand.android.TreeTracker.models.messages.database.MessagesDAO
 import org.greenstand.android.TreeTracker.utilities.md5
+import java.io.IOException
 import kotlin.time.ExperimentalTime
 
 class MessageUploader(
     private val objectStorageClient: ObjectStorageClient,
     private val messagesDAO: MessagesDAO,
     private val json: Json,
+    private val exceptionDataCollector: ExceptionDataCollector,
 ) {
     @OptIn(ExperimentalTime::class)
     suspend fun uploadMessages() {
-        coroutineScope {
-            messagesDAO
-                .getMessageIdsToUpload()
-                .windowed(LIMIT, LIMIT, true)
-                .map { async { uploadMessageBundle(it) } }
-                .onEach { it.await() }
+        try {
+            coroutineScope {
+                messagesDAO
+                    .getMessageIdsToUpload()
+                    .windowed(LIMIT, LIMIT, true)
+                    .map { async { uploadMessageBundle(it) } }
+                    .onEach { it.await() }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: SerializationException) {
+            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_PARSING, e, "Serialization failure during message upload")
+            throw e
+        } catch (e: IOException) {
+            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_NETWORK, e, "Network failure during message upload")
+            throw e
+        } catch (e: AmazonClientException) {
+            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_SERVER, e, "Storage server failure during message upload")
+            throw e
+        } catch (e: Exception) {
+            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_UNKNOWN, e, "Unexpected failure during message upload")
+            throw e
         }
     }
 
