@@ -1,48 +1,21 @@
-# Task 23 - Address review findings on upload failure logging
+# Task 18 - Split `TextButton.kt`
 
 ## Goal
 
-Fix the problems found while reviewing the upload failure logging PR (issue
-#1317), so that failure types are recorded accurately without changing how
-uploads behave.
-
-## Problem
-
-The review ran the PR against `master` on an emulator with induced failures:
-
-1. A tree whose photo failed to upload was sent without a photo, marked
-   uploaded and had its local photo deleted (`master` kept it pending).
-2. Network failures were labelled `server_failure`: the AWS SDK wraps them in
-   `AmazonClientException`, which the `IOException` checks never matched.
-3. `failure_type` was always empty in Crashlytics: it was cleared right after
-   `recordException`, but Crashlytics reads custom keys later, on a background
-   thread.
-4. Side effects: one failed tree bundle ended the whole sync, cancelling a sync
-   left `is_syncing=true`, and each failure was reported to Crashlytics 3 times.
+Reduce the size of `app/src/main/java/org/greenstand/android/TreeTracker/view/TextButton.kt` by extracting
+distinct button variants and support classes into focused files.
 
 ## Changes
 
-- `TreeUploader`: a failed image upload fails the bundle again (trees stay
-  pending, photos stay on disk). The failure is not re-recorded because
-  `UploadImageUseCase` already did. A failed bundle no longer aborts the sync.
-- `ExceptionDataCollector.recordFailure(throwable, message)` now classifies the
-  failure itself (`classify`), replacing the per-uploader `when`/catch blocks.
-  `AmazonServiceException` is `server_failure`, an `AmazonClientException` caused
-  by an `IOException` is `network_failure`.
-- `failure_type` is no longer cleared after each failure. It holds the most
-  recent upload failure type and is reset when the next sync starts.
-- `TreeSyncWorker` resets `is_syncing` in a `finally`.
-- `SyncDataUseCase` logs failures that were already recorded at debug level, so
-  each failure reaches Crashlytics once.
-
-## Out of scope
-
-- Attaching `failure_type` to a single event with
-  `recordException(Throwable, CustomKeysAndValues)` needs Crashlytics 19.x, i.e.
-  a Firebase BoM upgrade (currently 32.8.0). Left for a separate change.
+- Kept the shared `TreeTrackerButton` composable and `TreeTrackerButtonShape` enum in `TextButton.kt`.
+- Moved navigation buttons into `NavigationButtons.kt`.
+- Moved approval and info buttons into `ActionButtons.kt`.
+- Moved camera/add controls into `CaptureButtons.kt`.
+- Moved language and user image buttons into their own files.
+- Moved `DepthButtonColors` into `DepthButtonColors.kt` so shared styling remains reusable.
 
 ## Verification
 
-- `./gradlew :app:detekt :app:ktlintCheck` pass.
-- Unit tests for the classifier, `recordFailure`, and the `TreeUploader`
-  behaviours above.
+- `git diff --check` - passes.
+- Touched Kotlin/docs files checked for lines over the configured 120-character limit - passes.
+- `./gradlew :app:compileDebugKotlin` - blocked because no Java Runtime is available in this environment.
