@@ -15,11 +15,9 @@
  */
 package org.greenstand.android.TreeTracker.usecases
 
-import com.amazonaws.AmazonClientException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.greenstand.android.TreeTracker.analytics.ExceptionDataCollector
@@ -31,7 +29,6 @@ import org.greenstand.android.TreeTracker.database.TreeTrackerDAO
 import org.greenstand.android.TreeTracker.models.LocationData
 import org.greenstand.android.TreeTracker.utilities.md5
 import timber.log.Timber
-import java.io.IOException
 
 class UploadLocationDataUseCase(
     private val dao: TreeTrackerDAO,
@@ -91,17 +88,8 @@ class UploadLocationDataUseCase(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: SerializationException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_PARSING, e, "Serialization failure during location data upload")
-            return false
-        } catch (ace: AmazonClientException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_SERVER, ace, "Storage server failure during location data upload")
-            return false
-        } catch (e: IOException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_NETWORK, e, "Network failure during location data upload")
-            return false
         } catch (e: Exception) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_UNKNOWN, e, "Unexpected location upload error")
+            exceptionDataCollector.recordFailure(e, "Location data upload failed")
             return false
         }
         return true

@@ -15,13 +15,11 @@
  */
 package org.greenstand.android.TreeTracker.usecases
 
-import com.amazonaws.AmazonClientException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.greenstand.android.TreeTracker.analytics.ExceptionDataCollector
 import org.greenstand.android.TreeTracker.api.ObjectStorageClient
-import java.io.IOException
 
 data class UploadImageParams(
     val imagePath: String,
@@ -40,14 +38,8 @@ class UploadImageUseCase(
             }
         } catch (e: CancellationException) {
             throw e
-        } catch (e: IOException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_NETWORK, e, "Network failure during image upload")
-            null
-        } catch (ace: AmazonClientException) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_SERVER, ace, "Storage server failure during image upload")
-            null
         } catch (e: Exception) {
-            exceptionDataCollector.recordFailure(ExceptionDataCollector.TYPE_UNKNOWN, e, "Unexpected failure during image upload")
+            exceptionDataCollector.recordFailure(e, "Image upload failed")
             null
         }
 }

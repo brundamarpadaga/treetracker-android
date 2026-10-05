@@ -22,6 +22,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
+import org.greenstand.android.TreeTracker.analytics.ExceptionDataCollector
 import org.greenstand.android.TreeTracker.database.TreeTrackerDAO
 import org.greenstand.android.TreeTracker.models.DeviceConfigUploader
 import org.greenstand.android.TreeTracker.models.PlanterUploader
@@ -42,6 +43,7 @@ class SyncDataUseCase(
     private val deviceConfigUploader: DeviceConfigUploader,
     private val messagesRepo: MessagesRepo,
     private val syncProgressTracker: SyncProgressTracker,
+    private val exceptionDataCollector: ExceptionDataCollector,
 ) : UseCase<Unit, Boolean>() {
     private val TAG = "SyncDataUseCase"
 
@@ -91,9 +93,7 @@ class SyncDataUseCase(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            // Underlying uploaders already recorded the failure type; just log here so we don't
-            // double-count the same failure as unknown.
-            Timber.tag(TAG).e(e, "Error occurred during syncing data")
+            logSyncError(e, "Error occurred during syncing data")
             syncProgressTracker.endSync(error = e.localizedMessage)
             return false
         }
@@ -163,9 +163,21 @@ class SyncDataUseCase(
                 coroutineContext.cancel()
             }
         } catch (e: Exception) {
-            // Underling uploaders set the FAILURE_TYPE already, so we just log here
-            Timber.tag(TAG).e(e, "$tag failed")
+            logSyncError(e, "$tag failed")
             throw e
+        }
+    }
+
+    // Timber errors are forwarded to Crashlytics. The uploaders already reported the failures they
+    // recorded, so only report here what nothing upstream did, once per failure instead of once per layer.
+    private fun logSyncError(
+        e: Exception,
+        message: String,
+    ) {
+        if (exceptionDataCollector.wasRecorded(e)) {
+            Timber.tag(TAG).d(e, message)
+        } else {
+            Timber.tag(TAG).e(e, message)
         }
     }
 }

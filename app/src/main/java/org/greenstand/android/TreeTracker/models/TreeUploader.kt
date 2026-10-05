@@ -15,12 +15,10 @@
  */
 package org.greenstand.android.TreeTracker.models
 
-import com.amazonaws.AmazonClientException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.ensureActive
-import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.greenstand.android.TreeTracker.analytics.ExceptionDataCollector
@@ -37,8 +35,15 @@ import org.greenstand.android.TreeTracker.usecases.UploadImageUseCase
 import org.greenstand.android.TreeTracker.utilities.md5
 import timber.log.Timber
 import java.io.File
-import java.io.IOException
 import kotlin.coroutines.coroutineContext
+
+/**
+ * A tree's photo could not be uploaded. Thrown so the tree's bundle is held back and retried on the
+ * next sync, instead of sending the tree without a photo and marking it as uploaded.
+ */
+private class ImageUploadFailedException(
+    message: String,
+) : Exception(message)
 
 class TreeUploader(
     private val uploadImageUseCase: UploadImageUseCase,
@@ -80,7 +85,6 @@ class TreeUploader(
         onHandleUpload: suspend (List<Long>) -> Unit,
     ) {
         log("Uploading ${treeIds.size} trees")
-        var firstError: Exception? = null
 
         treeIds.windowed(size = TREE_BUNDLE_SIZE, step = TREE_BUNDLE_SIZE, partialWindows = true).forEach { treeIdBundle ->
             try {
@@ -92,40 +96,15 @@ class TreeUploader(
                 }
             } catch (e: CancellationException) {
                 throw e
-            } catch (e: SerializationException) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_PARSING,
-                    e,
-                    "NewTree upload failed: Parsing failure for bundle $treeIdBundle",
-                )
-                if (firstError == null) firstError = e
-            } catch (e: IOException) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_NETWORK,
-                    e,
-                    "NewTree upload failed: Network failure for bundle $treeIdBundle",
-                )
-                if (firstError == null) firstError = e
-            } catch (e: AmazonClientException) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_SERVER,
-                    e,
-                    "NewTree upload failed: Storage server failure for bundle $treeIdBundle",
-                )
-                if (firstError == null) firstError = e
+            } catch (e: ImageUploadFailedException) {
+                // UploadImageUseCase already recorded this failure, so don't count it twice.
+                log("Bundle $treeIdBundle held back: ${e.message}")
             } catch (e: Exception) {
-                exceptionDataCollector.recordFailure(
-                    ExceptionDataCollector.TYPE_UNKNOWN,
-                    e,
-                    "NewTree upload failed: Unexpected failure for bundle $treeIdBundle",
-                )
-                if (firstError == null) {
-                    firstError = e
-                }
+                // A failed bundle must not stop the remaining ones. Its trees stay pending for the next sync.
+                exceptionDataCollector.recordFailure(e, "Tree upload failed for bundle $treeIdBundle")
             }
         }
 
-        firstError?.let { throw it }
         log("Completed upload for ${treeIds.size} trees")
     }
 
@@ -143,14 +122,11 @@ class TreeUploader(
                                     lat = tree.latitude,
                                     long = tree.longitude,
                                 ),
-                            )
+                            ) ?: throw ImageUploadFailedException("No imageUrl for tree ${tree.uuid}")
 
-                        // UploadImageUseCase already recorded the failure type; just skip this
-                        // tree's photo rather than raising a second, miscategorized exception.
-                        imageUrl?.let {
-                            tree.photoUrl = it
-                            dao.updateTreeCapture(tree)
-                        }
+                        // Update local tree data with image Url
+                        tree.photoUrl = imageUrl
+                        dao.updateTreeCapture(tree)
                     }
                 }.forEach { it.await() }
         }
@@ -171,14 +147,11 @@ class TreeUploader(
                                     lat = tree.latitude,
                                     long = tree.longitude,
                                 ),
-                            )
+                            ) ?: throw ImageUploadFailedException("No imageUrl for tree ${tree.uuid}")
 
-                        // UploadImageUseCase already recorded the failure type; just skip this
-                        // tree's photo rather than raising a second, miscategorized exception.
-                        imageUrl?.let {
-                            tree.photoUrl = it
-                            dao.updateTree(tree)
-                        }
+                        // Update local tree data with image Url
+                        tree.photoUrl = imageUrl
+                        dao.updateTree(tree)
                     }
                 }.forEach { it.await() }
         }
@@ -197,7 +170,7 @@ class TreeUploader(
                 createTreeRequestUseCase.execute(
                     CreateTreeRequestParams(
                         tree.id,
-                        tree.photoUrl ?: "",
+                        tree.photoUrl!!,
                     ),
                 )
             }
